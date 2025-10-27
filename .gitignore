@@ -13,6 +13,10 @@ test-report.txt
 benchmark-*.txt
 loadtest-results.json
 
+# AWS deployment artifacts
+aws/config.env
+aws/instance-details.env
+
 # IDE
 .vscode/
 .idea/

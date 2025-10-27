@@ -32,6 +32,13 @@ This project demonstrates a production-grade blue/green deployment strategy wher
 │   ├── package.json          # Node.js dependencies
 │   ├── server.js             # Express app with chaos endpoints
 │   └── README.md             # App-specific documentation
+├── aws/                      # ☁️ AWS deployment scripts
+│   ├── README.md             # AWS deployment guide
+│   ├── push-to-ecr.sh        # Push images to Amazon ECR
+│   ├── create-iam-role.sh    # Create IAM role for EC2
+│   ├── launch-ec2.sh         # Launch EC2 instance
+│   ├── ec2-user-data.sh      # EC2 initialization script
+│   └── cleanup.sh            # Cleanup AWS resources
 ├── docs/                     # 📚 Comprehensive documentation
 │   ├── README.md             # Documentation index
 │   ├── QUICKSTART.md         # Fast-path setup guide
@@ -339,6 +346,33 @@ curl -X POST http://localhost:8082/chaos/stop
 1. Study **[Production Guide](./docs/PRODUCTION.md)** for best practices
 2. Check **[Grading & CI](./docs/GRADING-AND-CI.md)** for CI/CD setup
 3. Use **[Deployment Summary](./docs/DEPLOYMENT-SUMMARY.md)** as checklist
+
+**Deploying to AWS?**
+1. Follow **[AWS Deployment Guide](./aws/README.md)** for EC2 setup
+2. Run `./aws/push-to-ecr.sh` to push images
+3. Run `./aws/launch-ec2.sh` to deploy infrastructure
+
+---
+
+## ☁️ AWS Deployment
+
+Deploy to AWS EC2 with automated scripts:
+
+```bash
+# 1. Push images to Amazon ECR
+./aws/push-to-ecr.sh us-east-1
+
+# 2. Create IAM role for ECR access
+./aws/create-iam-role.sh
+
+# 3. Launch EC2 instance (replace 'your-key-pair')
+./aws/launch-ec2.sh us-east-1 t3.medium your-key-pair
+
+# 4. Wait ~5 minutes, then access:
+# http://<public-ip>:8080
+```
+
+**See [aws/README.md](./aws/README.md) for complete deployment guide.**
 
 ---
 
