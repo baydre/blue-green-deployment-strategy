@@ -1,0 +1,67 @@
+services:
+  # Nginx reverse proxy with dynamic upstream selection
+  nginx:
+    image: ${NGINX_IMAGE:-nginx:latest}
+    container_name: nginx-proxy
+    ports:
+      - "8080:80"
+    volumes:
+      # Mount the nginx.conf.template for envsubst processing
+      - ./nginx.conf.template:/etc/nginx/templates/nginx.conf.template:ro
+    environment:
+      # Pass ACTIVE_POOL to envsubst at container startup
+      - ACTIVE_POOL=${ACTIVE_POOL}
+    command: >
+      /bin/sh -c "envsubst '$${ACTIVE_POOL}' < /etc/nginx/templates/nginx.conf.template > /etc/nginx/nginx.conf && 
+      nginx -g 'daemon off;'"
+    depends_on:
+      - app_blue
+      - app_green
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  # Blue application instance (primary in ACTIVE_POOL=blue)
+  app_blue:
+    image: ${BLUE_IMAGE}
+    container_name: app-blue
+    ports:
+      # Direct access on 8081 required for CI test harness to trigger /chaos/start
+      - "8081:80"
+    environment:
+      - RELEASE_ID=${RELEASE_ID_BLUE}
+      - APP_POOL=blue
+    networks:
+      - app-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  # Green application instance (backup in ACTIVE_POOL=blue, primary in ACTIVE_POOL=green)
+  app_green:
+    image: ${GREEN_IMAGE}
+    container_name: app-green
+    ports:
+      # Direct access on 8082 required for CI test harness
+      - "8082:80"
+    environment:
+      - RELEASE_ID=${RELEASE_ID_GREEN}
+      - APP_POOL=green
+    networks:
+      - app-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+# Isolated network for nginx + app instances
+networks:
+  app-network:
+    driver: bridge

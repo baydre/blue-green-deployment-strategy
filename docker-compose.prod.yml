@@ -1,0 +1,140 @@
+# Production overrides for docker-compose.yml
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+services:
+  nginx:
+    # Production image with pinned version
+    image: ${NGINX_IMAGE:-nginx:1.25-alpine}
+    
+    # Only expose HTTPS in production (assumes TLS termination)
+    ports:
+      - "80:80"
+      - "443:443"
+    
+    # Mount TLS certificates
+    volumes:
+      - ./nginx.conf.template:/etc/nginx/templates/nginx.conf.template:ro
+      - ./certs:/etc/nginx/ssl:ro  # TLS certificates directory
+      - ./nginx-cache:/var/cache/nginx
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+      restart_policy:
+        condition: unless-stopped
+        delay: 5s
+        max_attempts: 3
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "10"
+        labels: "service=nginx,environment=production"
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  app_blue:
+    # NO direct port exposure in production (only via nginx)
+    ports: []
+    
+    # Resource limits (tune based on your app's needs)
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '1'
+          memory: 512M
+      restart_policy:
+        condition: unless-stopped
+        delay: 10s
+        max_attempts: 5
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+        labels: "service=app,pool=blue,environment=production"
+    
+    # Tuned health check for production
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    
+    # Production environment variables
+    environment:
+      - RELEASE_ID=${RELEASE_ID_BLUE}
+      - APP_POOL=blue
+      - NODE_ENV=production
+      - LOG_LEVEL=info
+
+  app_green:
+    # NO direct port exposure in production
+    ports: []
+    
+    # Resource limits (identical to blue for consistency)
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '1'
+          memory: 512M
+      restart_policy:
+        condition: unless-stopped
+        delay: 10s
+        max_attempts: 5
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+        labels: "service=app,pool=green,environment=production"
+    
+    # Tuned health check for production
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    
+    # Production environment variables
+    environment:
+      - RELEASE_ID=${RELEASE_ID_GREEN}
+      - APP_POOL=green
+      - NODE_ENV=production
+      - LOG_LEVEL=info
+
+networks:
+  app-network:
+    driver: bridge
+    # Production network settings
+    driver_opts:
+      com.docker.network.bridge.name: br-bluegreen-prod
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

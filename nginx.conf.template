@@ -1,0 +1,82 @@
+# nginx.conf.template - rendered at container start via envsubst
+# ${ACTIVE_POOL} will be substituted into proxy_pass at container startup.
+
+worker_processes auto;
+error_log /var/log/nginx/error.log warn;
+pid /var/run/nginx.pid;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    keepalive_timeout 65;
+    types_hash_max_size 2048;
+
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    # Upstream pools: primary + backup
+    upstream blue_pool {
+        server app_blue:80 max_fails=1 fail_timeout=10s;
+        server app_green:80 backup;
+    }
+
+    upstream green_pool {
+        server app_green:80 max_fails=1 fail_timeout=10s;
+        server app_blue:80 backup;
+    }
+
+    server {
+        listen 80;
+
+        # Increase buffer sizes slightly for header forwarding
+        proxy_buffer_size 8k;
+        proxy_buffers 4 32k;
+        proxy_busy_buffers_size 64k;
+
+        location / {
+            # proxy to the selected pool (envsubst will set ACTIVE_POOL)
+            proxy_pass http://${ACTIVE_POOL}_pool;
+
+            # Retry policy: on network error, timeout, or any 5xx from primary, try the next upstream
+            proxy_next_upstream error timeout http_500 http_502 http_503 http_504;
+            proxy_next_upstream_tries 2;
+            proxy_next_upstream_timeout 5s;
+
+            # Failover timeouts - adjusted for reliability
+            proxy_connect_timeout 3s;
+            proxy_read_timeout 3s;
+            proxy_send_timeout 3s;
+
+            # Preserve original Host and client info
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+
+            # Use HTTP/1.1 to support keepalive with upstreams
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+
+            # Don't modify or strip upstream response headers (X-App-Pool, X-Release-Id)
+            # (Nginx will forward response headers by default.)
+        }
+
+        # Simple health endpoint forwarded to upstreams
+        location /health {
+            proxy_pass http://${ACTIVE_POOL}_pool/health;
+            proxy_connect_timeout 2s;
+            proxy_read_timeout 2s;
+        }
+
+        # Expose nginx status (optional, disabled by default)
+        # location /nginx_status {
+        #     stub_status on;
+        #     access_log off;
+        # }
+    }
+}

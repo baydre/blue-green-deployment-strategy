@@ -1,0 +1,146 @@
+name: Blue/Green Failover Verification
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  verify-failover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        active_pool: [blue, green]
+      fail-fast: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set ACTIVE_POOL for matrix
+        run: |
+          sed -i 's/ACTIVE_POOL=.*/ACTIVE_POOL=${{ matrix.active_pool }}/' .env
+          echo "Testing with ACTIVE_POOL=${{ matrix.active_pool }}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Blue app image
+        run: |
+          docker build -t blue-app:local ./app
+          docker images | grep blue-app
+
+      - name: Build Green app image
+        run: |
+          docker build -t green-app:local ./app
+          docker images | grep green-app
+
+      - name: Start Docker Compose stack
+        run: |
+          docker-compose up -d
+          echo "Waiting for services to be ready..."
+          sleep 10
+
+      - name: Show running containers
+        run: docker-compose ps
+
+      - name: Check Nginx logs
+        if: always()
+        run: docker-compose logs nginx
+
+      - name: Check Blue app logs
+        if: always()
+        run: docker-compose logs app_blue
+
+      - name: Check Green app logs
+        if: always()
+        run: docker-compose logs app_green
+
+      - name: Wait for services to be healthy
+        run: |
+          echo "Checking service health..."
+          for i in {1..30}; do
+            if curl -f http://localhost:8080/health 2>/dev/null; then
+              echo "Nginx is responding"
+              break
+            fi
+            echo "Waiting for services... ($i/30)"
+            sleep 2
+          done
+          
+          # Verify all services are reachable
+          curl -f http://localhost:8081/health || exit 1
+          curl -f http://localhost:8082/health || exit 1
+
+      - name: Run failover verification script
+        run: |
+          ./verify-failover.sh
+
+      - name: Run performance benchmark
+        run: |
+          echo "Running performance benchmark..."
+          # Install apache bench
+          sudo apt-get update && sudo apt-get install -y apache2-utils
+          
+          # Benchmark normal operation
+          ab -n 1000 -c 10 http://localhost:8080/ > benchmark-normal.txt 2>&1 || true
+          
+          # Trigger chaos on active pool
+          ACTIVE=${{ matrix.active_pool }}
+          ACTIVE_PORT=$([ "$ACTIVE" = "blue" ] && echo "8081" || echo "8082")
+          curl -X POST http://localhost:${ACTIVE_PORT}/chaos/start
+          
+          # Benchmark during failover
+          START_TIME=$(date +%s%N)
+          ab -n 100 -c 10 http://localhost:8080/ > benchmark-failover.txt 2>&1 || true
+          END_TIME=$(date +%s%N)
+          
+          # Calculate failover time
+          FAILOVER_TIME=$(( (END_TIME - START_TIME) / 1000000 ))
+          echo "Failover benchmark completed in ${FAILOVER_TIME}ms"
+          
+          # Stop chaos
+          curl -X POST http://localhost:${ACTIVE_PORT}/chaos/stop
+          
+          # Save results
+          echo "=== Normal Operation Benchmark ===" > benchmark-results.txt
+          grep -E "Requests per second|Time per request|Failed requests" benchmark-normal.txt >> benchmark-results.txt || true
+          echo "" >> benchmark-results.txt
+          echo "=== Failover Benchmark ===" >> benchmark-results.txt
+          grep -E "Requests per second|Time per request|Failed requests" benchmark-failover.txt >> benchmark-results.txt || true
+          echo "" >> benchmark-results.txt
+          echo "Total Failover Time: ${FAILOVER_TIME}ms" >> benchmark-results.txt
+          
+          cat benchmark-results.txt
+
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-${{ matrix.active_pool }}
+          path: |
+            benchmark-*.txt
+          retention-days: 30
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-logs
+          path: |
+            docker-compose-logs.txt
+          retention-days: 7
+
+      - name: Capture logs on failure
+        if: failure()
+        run: |
+          docker-compose logs > docker-compose-logs.txt
+
+      - name: Tear down Docker Compose stack
+        if: always()
+        run: |
+          docker-compose down -v
+          docker-compose ps
