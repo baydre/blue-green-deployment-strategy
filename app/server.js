@@ -8,6 +8,7 @@ const PORT = process.env.PORT || 80;
 
 // State: whether chaos mode is active (returns 500s)
 let chaosMode = false;
+let chaosType = 'error'; // 'error' or 'timeout'
 
 // Middleware to add custom headers to all responses
 app.use((req, res, next) => {
@@ -35,8 +36,27 @@ app.get('/', (req, res) => {
   });
 });
 
-// Health check endpoint
-app.get('/health', (req, res) => {
+// Version endpoint (required by grading criteria)
+app.get('/version', (req, res) => {
+  if (chaosMode) {
+    return res.status(500).json({
+      error: 'Chaos mode active',
+      pool: APP_POOL,
+      release: RELEASE_ID,
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  res.status(200).json({
+    pool: APP_POOL,
+    release: RELEASE_ID,
+    version: RELEASE_ID,
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Health check endpoint (required by grading criteria)
+app.get('/healthz', (req, res) => {
   // Health endpoint always returns 200 even in chaos mode
   // (so Docker healthcheck still passes)
   res.status(200).json({
@@ -49,10 +69,13 @@ app.get('/health', (req, res) => {
 
 // Start chaos mode (simulate failures)
 app.post('/chaos/start', (req, res) => {
+  const mode = req.query.mode || 'error'; // Support ?mode=error or ?mode=timeout
   chaosMode = true;
-  console.log(`[${APP_POOL}] Chaos mode STARTED`);
+  chaosType = mode;
+  console.log(`[${APP_POOL}] Chaos mode STARTED with mode: ${mode}`);
   res.status(200).json({
     message: 'Chaos mode activated',
+    mode: mode,
     pool: APP_POOL,
     release: RELEASE_ID
   });

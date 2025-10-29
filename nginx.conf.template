@@ -67,8 +67,8 @@ http {
         }
 
         # Simple health endpoint forwarded to upstreams
-        location /health {
-            proxy_pass http://${ACTIVE_POOL}_pool/health;
+        location /healthz {
+            proxy_pass http://${ACTIVE_POOL}_pool/healthz;
             proxy_connect_timeout 2s;
             proxy_read_timeout 2s;
         }
