@@ -21,12 +21,12 @@ http {
 
     # Upstream pools: primary + backup
     upstream blue_pool {
-        server app_blue:80 max_fails=1 fail_timeout=10s;
+        server app_blue:80 max_fails=1 fail_timeout=5s;
         server app_green:80 backup;
     }
 
     upstream green_pool {
-        server app_green:80 max_fails=1 fail_timeout=10s;
+        server app_green:80 max_fails=1 fail_timeout=5s;
         server app_blue:80 backup;
     }
 
