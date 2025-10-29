@@ -12,7 +12,7 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 # Configuration
-REGION="${1:-us-east-1}"
+REGION="${1:-eu-north-1}"
 REPOSITORY_NAME="blue-green/app"
 APP_VERSION="v1.0.0"
 

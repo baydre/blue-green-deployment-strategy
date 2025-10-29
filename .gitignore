@@ -16,6 +16,9 @@ loadtest-results.json
 # AWS deployment artifacts
 aws/config.env
 aws/instance-details.env
+aws/ec2-connection.txt
+*.pem
+*.pem.pub
 
 # IDE
 .vscode/

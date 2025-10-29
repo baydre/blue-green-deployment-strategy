@@ -36,9 +36,11 @@ This project demonstrates a production-grade blue/green deployment strategy wher
 │   ├── README.md             # AWS deployment guide
 │   ├── push-to-ecr.sh        # Push images to Amazon ECR
 │   ├── create-iam-role.sh    # Create IAM role for EC2
-│   ├── launch-ec2.sh         # Launch EC2 instance
-│   ├── ec2-user-data.sh      # EC2 initialization script
+│   ├── quick-deploy.sh       # Quick EC2 deployment
+│   ├── manual-setup.sh       # EC2 setup script
 │   └── cleanup.sh            # Cleanup AWS resources
+├── DEPLOY.md                 # Detailed deployment guide
+├── SUBMISSION.md             # Submission documentation
 ├── docs/                     # 📚 Comprehensive documentation
 │   ├── README.md             # Documentation index
 │   ├── QUICKSTART.md         # Fast-path setup guide
