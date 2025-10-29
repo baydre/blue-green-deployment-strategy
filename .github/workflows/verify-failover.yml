@@ -40,24 +40,24 @@ jobs:
 
       - name: Start Docker Compose stack
         run: |
-          docker-compose up -d
+          docker compose up -d
           echo "Waiting for services to be ready..."
           sleep 10
 
       - name: Show running containers
-        run: docker-compose ps
+        run: docker compose ps
 
       - name: Check Nginx logs
         if: always()
-        run: docker-compose logs nginx
+        run: docker compose logs nginx
 
       - name: Check Blue app logs
         if: always()
-        run: docker-compose logs app_blue
+        run: docker compose logs app_blue
 
       - name: Check Green app logs
         if: always()
-        run: docker-compose logs app_green
+        run: docker compose logs app_green
 
       - name: Wait for services to be healthy
         run: |
@@ -137,10 +137,10 @@ jobs:
       - name: Capture logs on failure
         if: failure()
         run: |
-          docker-compose logs > docker-compose-logs.txt
+          docker compose logs > docker-compose-logs.txt
 
       - name: Tear down Docker Compose stack
         if: always()
         run: |
-          docker-compose down -v
-          docker-compose ps
+          docker compose down -v
+          docker compose ps
