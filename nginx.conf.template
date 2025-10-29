@@ -45,12 +45,15 @@ http {
             # Retry policy: on network error, timeout, or any 5xx from primary, try the next upstream
             proxy_next_upstream error timeout http_500 http_502 http_503 http_504;
             proxy_next_upstream_tries 2;
-            proxy_next_upstream_timeout 5s;
+            proxy_next_upstream_timeout 4s;
 
-            # Failover timeouts - adjusted for reliability
-            proxy_connect_timeout 3s;
-            proxy_read_timeout 3s;
-            proxy_send_timeout 3s;
+            # Failover timeouts - ensure total request time < 10s
+            # Primary: 2s connect + 2s read = 4s
+            # Retry: up to 4s total
+            # Maximum: 4s + 4s = 8s (well under 10s requirement)
+            proxy_connect_timeout 2s;
+            proxy_read_timeout 2s;
+            proxy_send_timeout 2s;
 
             # Preserve original Host and client info
             proxy_set_header Host $host;
