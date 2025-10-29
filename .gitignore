@@ -12,6 +12,7 @@ test-results-*.log
 test-report.txt
 benchmark-*.txt
 loadtest-results.json
+ci-test-output.log
 
 # AWS deployment artifacts
 aws/config.env

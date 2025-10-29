@@ -18,16 +18,39 @@ if [ -f .env ]; then
     export $(grep -v '^#' .env | xargs)
 fi
 
+# Load expected values from .env if it exists
+if [ -f .env ]; then
+    export $(grep -v '^#' .env | xargs)
+fi
+
 EXPECTED_BLUE_RELEASE="${RELEASE_ID_BLUE:-v1.0.1-blue}"
 EXPECTED_GREEN_RELEASE="${RELEASE_ID_GREEN:-v1.1.0-green}"
+ACTIVE_POOL="${ACTIVE_POOL:-blue}"
+
+# Determine active and backup pools
+if [ "$ACTIVE_POOL" = "blue" ]; then
+    EXPECTED_ACTIVE_POOL="blue"
+    EXPECTED_BACKUP_POOL="green"
+    EXPECTED_ACTIVE_RELEASE="$EXPECTED_BLUE_RELEASE"
+    EXPECTED_BACKUP_RELEASE="$EXPECTED_GREEN_RELEASE"
+    CHAOS_URL="$BLUE_DIRECT_URL"
+else
+    EXPECTED_ACTIVE_POOL="green"
+    EXPECTED_BACKUP_POOL="blue"
+    EXPECTED_ACTIVE_RELEASE="$EXPECTED_GREEN_RELEASE"
+    EXPECTED_BACKUP_RELEASE="$EXPECTED_BLUE_RELEASE"
+    CHAOS_URL="$GREEN_DIRECT_URL"
+fi
 
 echo "=================================="
 echo "Blue/Green Failover Verification"
 echo "=================================="
+echo "Active Pool: $EXPECTED_ACTIVE_POOL"
+echo "Backup Pool: $EXPECTED_BACKUP_POOL"
 echo ""
 
-# Step 1: Baseline verification (traffic should go to Blue)
-echo -e "${YELLOW}[STEP 1]${NC} Verifying baseline traffic to Blue pool..."
+# Step 1: Baseline verification (traffic should go to active pool)
+echo -e "${YELLOW}[STEP 1]${NC} Verifying baseline traffic to $EXPECTED_ACTIVE_POOL pool..."
 RESPONSE=$(curl -s -i "$NGINX_URL/")
 STATUS_CODE=$(echo "$RESPONSE" | grep -i "HTTP/" | awk '{print $2}')
 APP_POOL=$(echo "$RESPONSE" | grep -i "X-App-Pool:" | awk '{print $2}' | tr -d '\r')
@@ -38,25 +61,25 @@ if [ "$STATUS_CODE" != "200" ]; then
     exit 1
 fi
 
-if [ "$APP_POOL" != "blue" ]; then
-    echo -e "${RED}✗ FAIL${NC}: Expected X-App-Pool: blue, got $APP_POOL"
+if [ "$APP_POOL" != "$EXPECTED_ACTIVE_POOL" ]; then
+    echo -e "${RED}✗ FAIL${NC}: Expected X-App-Pool: $EXPECTED_ACTIVE_POOL, got $APP_POOL"
     exit 1
 fi
 
-if [ "$RELEASE_ID" != "$EXPECTED_BLUE_RELEASE" ]; then
-    echo -e "${RED}✗ FAIL${NC}: Expected X-Release-Id: $EXPECTED_BLUE_RELEASE, got $RELEASE_ID"
+if [ "$RELEASE_ID" != "$EXPECTED_ACTIVE_RELEASE" ]; then
+    echo -e "${RED}✗ FAIL${NC}: Expected X-Release-Id: $EXPECTED_ACTIVE_RELEASE, got $RELEASE_ID"
     exit 1
 fi
 
-echo -e "${GREEN}✓ PASS${NC}: Baseline traffic correctly routed to Blue"
+echo -e "${GREEN}✓ PASS${NC}: Baseline traffic correctly routed to $EXPECTED_ACTIVE_POOL"
 echo "  Status: $STATUS_CODE"
 echo "  X-App-Pool: $APP_POOL"
 echo "  X-Release-Id: $RELEASE_ID"
 echo ""
 
-# Step 2: Trigger chaos mode on Blue
-echo -e "${YELLOW}[STEP 2]${NC} Triggering chaos mode on Blue instance..."
-CHAOS_RESPONSE=$(curl -s -X POST "$BLUE_DIRECT_URL/chaos/start")
+# Step 2: Trigger chaos mode on active pool
+echo -e "${YELLOW}[STEP 2]${NC} Triggering chaos mode on $EXPECTED_ACTIVE_POOL instance..."
+CHAOS_RESPONSE=$(curl -s -X POST "$CHAOS_URL/chaos/start")
 echo "  Response: $CHAOS_RESPONSE"
 echo ""
 
@@ -131,21 +154,28 @@ else
     PASS=false
 fi
 
-# Criterion 2: At least 95% of responses from Green
-green_percentage=$(awk "BEGIN {printf \"%.1f\", ($green_count/$total_requests)*100}")
-echo -n "2. ≥95% responses from Green: "
-if (( $(awk "BEGIN {print ($green_count >= $total_requests * 0.95)}") )); then
-    echo -e "${GREEN}✓ PASS${NC} ($green_percentage%)"
+# Criterion 2: At least 95% of responses from backup pool
+backup_count=$((total_requests - blue_count - green_count - unknown_count))
+if [ "$EXPECTED_BACKUP_POOL" = "blue" ]; then
+    backup_count=$blue_count
 else
-    echo -e "${RED}✗ FAIL${NC} ($green_percentage%, need ≥95%)"
+    backup_count=$green_count
+fi
+
+backup_percentage=$(awk "BEGIN {printf \"%.1f\", ($backup_count/$total_requests)*100}")
+echo -n "2. ≥95% responses from $EXPECTED_BACKUP_POOL: "
+if (( $(awk "BEGIN {print ($backup_count >= $total_requests * 0.95)}") )); then
+    echo -e "${GREEN}✓ PASS${NC} ($backup_percentage%)"
+else
+    echo -e "${RED}✗ FAIL${NC} ($backup_percentage%, need ≥95%)"
     PASS=false
 fi
 
 echo ""
 
-# Step 5: Cleanup - stop chaos mode
-echo -e "${YELLOW}[CLEANUP]${NC} Stopping chaos mode on Blue..."
-curl -s -X POST "$BLUE_DIRECT_URL/chaos/stop" > /dev/null
+# Step 5: Cleanup - stop chaos mode on active pool
+echo -e "${YELLOW}[CLEANUP]${NC} Stopping chaos mode on $EXPECTED_ACTIVE_POOL..."
+curl -s -X POST "$CHAOS_URL/chaos/stop" > /dev/null
 echo "  Chaos mode deactivated"
 echo ""
 
