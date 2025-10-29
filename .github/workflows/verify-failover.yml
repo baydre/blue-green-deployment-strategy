@@ -63,7 +63,7 @@ jobs:
         run: |
           echo "Checking service health..."
           for i in {1..30}; do
-            if curl -f http://localhost:8080/health 2>/dev/null; then
+            if curl -f http://localhost:8080/healthz 2>/dev/null; then
               echo "Nginx is responding"
               break
             fi
@@ -72,8 +72,8 @@ jobs:
           done
           
           # Verify all services are reachable
-          curl -f http://localhost:8081/health || exit 1
-          curl -f http://localhost:8082/health || exit 1
+          curl -f http://localhost:8081/healthz || exit 1
+          curl -f http://localhost:8082/healthz || exit 1
 
       - name: Run failover verification script
         run: |
@@ -86,16 +86,16 @@ jobs:
           sudo apt-get update && sudo apt-get install -y apache2-utils
           
           # Benchmark normal operation
-          ab -n 1000 -c 10 http://localhost:8080/ > benchmark-normal.txt 2>&1 || true
+          ab -n 1000 -c 10 http://localhost:8080/version > benchmark-normal.txt 2>&1 || true
           
           # Trigger chaos on active pool
           ACTIVE=${{ matrix.active_pool }}
           ACTIVE_PORT=$([ "$ACTIVE" = "blue" ] && echo "8081" || echo "8082")
-          curl -X POST http://localhost:${ACTIVE_PORT}/chaos/start
+          curl -X POST http://localhost:${ACTIVE_PORT}/chaos/start?mode=error
           
           # Benchmark during failover
           START_TIME=$(date +%s%N)
-          ab -n 100 -c 10 http://localhost:8080/ > benchmark-failover.txt 2>&1 || true
+          ab -n 100 -c 10 http://localhost:8080/version > benchmark-failover.txt 2>&1 || true
           END_TIME=$(date +%s%N)
           
           # Calculate failover time
