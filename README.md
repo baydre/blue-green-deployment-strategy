@@ -18,15 +18,23 @@ This project demonstrates a production-grade blue/green deployment strategy wher
 ✅ **Header preservation** - `X-App-Pool` and `X-Release-Id` forwarded to clients  
 ✅ **Chaos engineering** - Built-in failure simulation via `/chaos` endpoints  
 ✅ **Automated verification** - CI-ready test script validates acceptance criteria  
+✅ **Real-time alert monitoring** - Python watcher with Slack integration  
+✅ **Structured logging** - Comprehensive nginx logs with pool, release, and timing data  
+✅ **Operator runbook** - Documented incident response procedures  
 
 ## 📁 Project Structure
 
 ```
 .
 ├── .env                      # Environment variables (ACTIVE_POOL, image tags, release IDs)
+├── .env.example              # Environment template (no secrets)
 ├── .github/
 │   └── workflows/
 │       └── verify-failover.yml  # CI workflow for automated testing
+├── alert-watcher/            # 🚨 Real-time alert monitoring
+│   ├── Dockerfile            # Python 3.11 alpine container
+│   ├── requirements.txt      # Python dependencies (requests)
+│   └── watcher.py            # Log monitoring with Slack integration
 ├── app/
 │   ├── Dockerfile            # Container image for blue/green apps
 │   ├── package.json          # Node.js dependencies
@@ -40,6 +48,8 @@ This project demonstrates a production-grade blue/green deployment strategy wher
 │   ├── manual-setup.sh       # EC2 setup script
 │   └── cleanup.sh            # Cleanup AWS resources
 ├── DEPLOY.md                 # Detailed deployment guide
+├── RUNBOOK.md                # 📋 Operator incident response guide
+├── SCREENSHOTS.md            # 📸 Instructions for capturing verification screenshots
 ├── SUBMISSION.md             # Submission documentation
 ├── docs/                     # 📚 Comprehensive documentation
 │   ├── README.md             # Documentation index
@@ -48,7 +58,7 @@ This project demonstrates a production-grade blue/green deployment strategy wher
 │   ├── PRODUCTION.md         # Production deployment guide
 │   ├── DEPLOYMENT-SUMMARY.md # Complete implementation summary
 │   └── GUIDE.md              # Detailed implementation guide
-├── docker-compose.yml        # Service orchestration (nginx, app_blue, app_green)
+├── docker-compose.yml        # Service orchestration (nginx, app_blue, app_green, alert_watcher)
 ├── docker-compose.prod.yml   # Production overrides
 ├── nginx.conf.template       # Nginx config with ${ACTIVE_POOL} substitution
 ├── build-images.sh           # Image builder script
@@ -114,7 +124,120 @@ The script will:
 3. 📊 Send 100 requests and measure failover
 4. ✅ Validate zero non-200s and ≥95% responses from Green
 
-## 🔄 Manual Pool Toggle
+## � Alert Monitoring & Slack Integration
+
+The system includes a real-time alert watcher that monitors nginx logs and sends notifications to Slack.
+
+### Setup Alert Monitoring
+
+1. **Get a Slack Webhook URL**
+   - Go to https://api.slack.com/messaging/webhooks
+   - Create an incoming webhook for your workspace
+   - Copy the webhook URL
+
+2. **Configure Environment**
+   ```bash
+   # Copy the example file
+   cp .env.example .env
+   
+   # Edit .env and set your Slack webhook
+   SLACK_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL
+   ```
+
+3. **Start Services with Alert Watcher**
+   ```bash
+   docker-compose up -d
+   ```
+
+### Alert Types
+
+The watcher detects and reports three types of events:
+
+| Alert | Trigger | Slack Message |
+|-------|---------|---------------|
+| 🔄 **Failover** | Pool changes (blue→green or green→blue) | Pool change notification with timestamp |
+| ⚠️ **High Error Rate** | >2% 5xx errors in sliding 200-request window | Error rate percentage and threshold breach |
+| ✅ **Recovery** | System returns to primary pool after failover | Recovery confirmation with downtime duration |
+
+### View Alert Logs
+
+```bash
+# Check alert watcher activity
+docker logs alert-watcher --tail 50
+
+# Watch in real-time
+docker logs alert-watcher -f
+```
+
+**Example output:**
+```
+[2025-10-30 16:24:28] INFO: Failover detected: blue → green
+[2025-10-30 16:24:29] INFO: ✓ Slack alert sent: failover
+[2025-10-30 16:43:53] WARNING: High error rate detected: 4.00% (threshold: 2.0%)
+[2025-10-30 16:43:53] INFO: ✓ Slack alert sent: error_rate
+[2025-10-30 16:49:22] INFO: ✓ Slack alert sent: recovery
+```
+
+### Test Slack Alerts
+
+```bash
+# Trigger a failover alert
+curl -X POST http://localhost:8081/chaos/start?mode=error
+for i in {1..20}; do curl http://localhost:8080/version; sleep 0.2; done
+
+# Check Slack for the alert message
+# Stop chaos to trigger recovery alert
+curl -X POST http://localhost:8081/chaos/stop
+```
+
+### Structured Nginx Logs
+
+All nginx access logs use a structured format for easy parsing:
+
+**Format:** `pool|release|upstream_status|upstream_addr|request_time|upstream_response_time|status|request`
+
+**Example:**
+```
+green|Green-v1.0.0|200|172.19.0.3:80|0.001|0.001|200|GET /version HTTP/1.1
+green|Green-v1.0.0|500, 200|172.19.0.2:80, 172.19.0.3:80|0.001|0.001, 0.000|200|GET /version HTTP/1.1
+```
+
+**View logs:**
+```bash
+# Live tail
+docker exec nginx-proxy tail -f /var/log/nginx/access.log
+
+# Last 20 lines
+docker exec nginx-proxy tail -20 /var/log/nginx/access.log
+```
+
+### Alert Configuration
+
+Customize alert behavior in `.env`:
+
+```bash
+# Error rate threshold (percentage)
+ERROR_RATE_THRESHOLD=2
+
+# Sliding window size (number of requests)
+WINDOW_SIZE=200
+
+# Minimum seconds between alerts of same type
+ALERT_COOLDOWN_SEC=300
+
+# Suppress alerts during maintenance
+MAINTENANCE_MODE=false
+```
+
+### Operator Runbook
+
+See **[RUNBOOK.md](./RUNBOOK.md)** for detailed incident response procedures, including:
+- Alert interpretation and severity levels
+- Step-by-step troubleshooting guides
+- Maintenance mode procedures
+- Common failure scenarios and remediation
+
+## �🔄 Manual Pool Toggle
 
 To switch the active pool from Blue to Green (or vice versa):
 
@@ -258,9 +381,14 @@ Aggressive 2-second timeouts ensure:
 | `ACTIVE_POOL` | Primary upstream pool (`blue` or `green`) | `blue` |
 | `BLUE_IMAGE` | Docker image for Blue instance | `blue-app:local` |
 | `GREEN_IMAGE` | Docker image for Green instance | `green-app:local` |
-| `RELEASE_ID_BLUE` | Release identifier for Blue (exposed in header) | `v1.0.1-blue` |
-| `RELEASE_ID_GREEN` | Release identifier for Green (exposed in header) | `v1.1.0-green` |
+| `RELEASE_ID_BLUE` | Release identifier for Blue (exposed in header) | `Blue-v1.0.0` |
+| `RELEASE_ID_GREEN` | Release identifier for Green (exposed in header) | `Green-v1.0.0` |
 | `VERIFICATION_REQUESTS` | Number of requests in verification script | `100` |
+| `SLACK_WEBHOOK_URL` | Slack incoming webhook for alerts | `https://hooks.slack.com/...` |
+| `ERROR_RATE_THRESHOLD` | Error percentage that triggers alert | `2` |
+| `WINDOW_SIZE` | Request window for error rate calculation | `200` |
+| `ALERT_COOLDOWN_SEC` | Minimum seconds between same alert type | `300` |
+| `MAINTENANCE_MODE` | Suppress alerts during planned changes | `false` |
 
 ### Port Mappings
 
@@ -274,11 +402,41 @@ Aggressive 2-second timeouts ensure:
 
 The implementation satisfies these strict requirements:
 
+### Stage 1: Blue-Green Failover
 ✅ **Zero non-200 responses** during failover (0% error rate)  
 ✅ **≥95% traffic** successfully served by backup pool after primary failure  
 ✅ **Headers preserved**: `X-App-Pool` and `X-Release-Id` forwarded to clients  
-✅ **Rapid failover**: <2s timeout ensures fast recovery  
+✅ **Rapid failover**: <5s timeout ensures fast recovery  
 ✅ **Automated verification**: CI pipeline validates behavior on every push  
+
+### Stage 2: Alert Monitoring
+✅ **Structured logging**: Nginx logs include pool, release, upstream status, address, and timing  
+✅ **Failover alerts**: Slack notifications sent when pool changes detected  
+✅ **Error rate alerts**: Notifications when 5xx rate exceeds threshold (2%)  
+✅ **Alert deduplication**: Cooldown mechanism prevents alert spam  
+✅ **Operator runbook**: Documented incident response procedures  
+✅ **Production tested**: Deployed to AWS EC2 with verified Slack integration  
+
+## 📸 Screenshots
+
+Verification proof for Stage 2 submission requirements:
+
+### 📷 Required Screenshots
+
+1. **Slack Alert - Failover Event**  
+   Screenshot showing Slack message when Blue fails and Green takes over
+   - See [SCREENSHOTS.md](./SCREENSHOTS.md) for detailed capture instructions
+   - Located in: `screenshots/01-slack-failover-alert.png`
+
+2. **Slack Alert - High Error Rate**  
+   Screenshot showing Slack message triggered when error rate >2%
+   - Located in: `screenshots/02-slack-error-rate-alert.png`
+
+3. **Container Logs - Structured Format**  
+   Screenshot showing nginx log format with structured fields
+   - Located in: `screenshots/03-nginx-structured-logs.png`
+
+**View Instructions:** See **[SCREENSHOTS.md](./SCREENSHOTS.md)** for step-by-step guide on capturing these screenshots.
 
 ## 🐛 Troubleshooting
 
@@ -323,6 +481,37 @@ curl -X POST http://localhost:8081/chaos/stop
 curl -X POST http://localhost:8082/chaos/stop
 ```
 
+### Alert watcher not sending Slack notifications
+
+```bash
+# Check if webhook URL is configured
+docker exec alert-watcher env | grep SLACK_WEBHOOK_URL
+
+# Check watcher logs for errors
+docker logs alert-watcher --tail 50
+
+# Verify watcher is processing logs
+docker logs alert-watcher | grep "Processed.*requests"
+
+# Test Slack webhook manually
+curl -X POST YOUR_SLACK_WEBHOOK_URL \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"Test message from blue-green deployment"}'
+```
+
+### Nginx logs not showing structured format
+
+```bash
+# Verify nginx config has custom log format
+docker exec nginx-proxy cat /etc/nginx/nginx.conf | grep "log_format alert_format"
+
+# Check if logs are being written
+docker exec nginx-proxy ls -lh /var/log/nginx/access.log
+
+# Regenerate nginx config and restart
+docker-compose up -d --force-recreate nginx
+```
+
 ## 📚 Documentation
 
 ### 📖 Quick Access
@@ -330,6 +519,8 @@ curl -X POST http://localhost:8082/chaos/stop
 | Document | Description | Best For |
 |----------|-------------|----------|
 | **[Quick Start](./docs/QUICKSTART.md)** | Get running in 5 minutes | Graders, First-time users |
+| **[Runbook](./RUNBOOK.md)** | Incident response & alert handling | Operators, On-call engineers |
+| **[Screenshots Guide](./SCREENSHOTS.md)** | Capture verification screenshots | Submission, Documentation |
 | **[Grading & CI](./docs/GRADING-AND-CI.md)** | Grading criteria & CI customization | Evaluators, Developers |
 | **[Production Guide](./docs/PRODUCTION.md)** | Production deployment strategies | DevOps, SRE |
 | **[Implementation Guide](./docs/GUIDE.md)** | Architecture & edge cases | Developers, Architects |
