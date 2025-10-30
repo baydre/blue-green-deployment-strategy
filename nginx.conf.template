@@ -19,6 +19,15 @@ http {
     include /etc/nginx/mime.types;
     default_type application/octet-stream;
 
+    # Custom log format for alert monitoring
+    # Format: pool|release|upstream_status|upstream_addr|request_time|upstream_response_time|status|request
+    log_format alert_format '$upstream_http_x_app_pool|$upstream_http_x_release_id|$upstream_status|$upstream_addr|$request_time|$upstream_response_time|$status|$request';
+    
+    # Write to actual file (not symlinked to stdout) for alert watcher
+    access_log /var/log/nginx/access.log alert_format;
+    # Also log to stdout for docker logs
+    access_log /dev/stdout alert_format;
+
     # Upstream pools: primary + backup
     upstream blue_pool {
         server app_blue:80 max_fails=1 fail_timeout=5s;

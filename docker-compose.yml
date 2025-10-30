@@ -8,11 +8,15 @@ services:
     volumes:
       # Mount the nginx.conf.template for envsubst processing
       - ./nginx.conf.template:/etc/nginx/templates/nginx.conf.template:ro
+      # Shared log volume for alert watcher
+      - nginx-logs:/var/log/nginx
     environment:
       # Pass ACTIVE_POOL to envsubst at container startup
       - ACTIVE_POOL=${ACTIVE_POOL}
     command: >
-      /bin/sh -c "envsubst '$${ACTIVE_POOL}' < /etc/nginx/templates/nginx.conf.template > /etc/nginx/nginx.conf && 
+      /bin/sh -c "rm -f /var/log/nginx/access.log /var/log/nginx/error.log &&
+      touch /var/log/nginx/access.log /var/log/nginx/error.log &&
+      envsubst '$${ACTIVE_POOL}' < /etc/nginx/templates/nginx.conf.template > /etc/nginx/nginx.conf && 
       nginx -g 'daemon off;'"
     depends_on:
       - app_blue
@@ -61,7 +65,33 @@ services:
       retries: 3
       start_period: 5s
 
+  # Alert Watcher - monitors nginx logs and sends Slack alerts
+  alert_watcher:
+    build:
+      context: ./alert-watcher
+      dockerfile: Dockerfile
+    container_name: alert-watcher
+    volumes:
+      # Access nginx logs via shared volume
+      - nginx-logs:/var/log/nginx:ro
+    environment:
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL}
+      - ERROR_RATE_THRESHOLD=${ERROR_RATE_THRESHOLD:-2}
+      - WINDOW_SIZE=${WINDOW_SIZE:-200}
+      - ALERT_COOLDOWN_SEC=${ALERT_COOLDOWN_SEC:-300}
+      - MAINTENANCE_MODE=${MAINTENANCE_MODE:-false}
+      - LOG_FILE_PATH=/var/log/nginx/access.log
+    depends_on:
+      - nginx
+    networks:
+      - app-network
+    restart: unless-stopped
+
 # Isolated network for nginx + app instances
 networks:
   app-network:
     driver: bridge
+
+# Shared volume for nginx logs
+volumes:
+  nginx-logs:
