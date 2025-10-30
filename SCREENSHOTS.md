@@ -12,7 +12,7 @@ This document provides step-by-step instructions for capturing the required scre
 1. Open your Slack workspace
 2. Navigate to the channel configured with your Slack webhook. 
 3. Look for messages sent around these timestamps:
-*P.S: Check this [link](https://drive.google.com/drive/folders/1tDA-oBFBLDdImdJ-pokeOhhzCHRqCcVP?usp=sharing) to see images.*
+
 **Expected message format:**
 ```
 🔄 Failover Detected
@@ -210,3 +210,5 @@ screenshots/
 **Last Updated**: 2025-10-30  
 **Alerts Sent**: 3 failover alerts, 1 recovery alert  
 **System Status**: ✅ All services operational
+
+*P.S: Check this [link](https://drive.google.com/drive/folders/1tDA-oBFBLDdImdJ-pokeOhhzCHRqCcVP?usp=sharing) to see images.*
