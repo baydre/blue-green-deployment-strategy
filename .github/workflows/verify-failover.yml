@@ -20,6 +20,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Setup environment file
+        run: |
+          # Create .env from .env.example if it doesn't exist
+          if [ ! -f .env ]; then
+            cp .env.example .env
+            echo ".env created from .env.example"
+          fi
+          cat .env
+
       - name: Set ACTIVE_POOL for matrix
         run: |
           sed -i 's/ACTIVE_POOL=.*/ACTIVE_POOL=${{ matrix.active_pool }}/' .env
@@ -37,6 +46,11 @@ jobs:
         run: |
           docker build -t green-app:local ./app
           docker images | grep green-app
+
+      - name: Build Alert Watcher image
+        run: |
+          docker build -t alert-watcher:local ./alert-watcher
+          docker images | grep alert-watcher
 
       - name: Start Docker Compose stack
         run: |
@@ -58,6 +72,10 @@ jobs:
       - name: Check Green app logs
         if: always()
         run: docker compose logs app_green
+
+      - name: Check Alert Watcher logs
+        if: always()
+        run: docker compose logs alert_watcher
 
       - name: Wait for services to be healthy
         run: |
